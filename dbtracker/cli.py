@@ -1,10 +1,15 @@
 import datetime
 import logging
 import sys
+import smtplib
+from io import StringIO
 from dateutil.parser import parse
 from dbtracker.configurator import read_config
 from dbtracker.dbproviders import Storage, Mysql, Postgres
 from dbtracker.console_graph import print_bars
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +29,9 @@ class Cli(object):
             sys.exit(1)
 
     def main(self):
+        self.low = 0
+        self.high = 0
+        
         args = self.args
         if args.save:
             self.save()
@@ -31,6 +39,9 @@ class Cli(object):
             self.history()
         elif args.growth:
             self.growth()
+            if args.min or args.max:
+                if self.check_threshold():
+                    self.email()
         elif args.count:
             self.count()
         elif args.dates:
@@ -38,6 +49,55 @@ class Cli(object):
         else:
             print("Please pass -h for help")
 
+    def email(self):
+        
+        old_stdout = sys.stdout
+        
+        result = StringIO()
+        sys.stdout = result
+        
+        self.growth()
+        
+        sys.stdout = old_stdout
+        result_string = result.getvalue()
+        
+        me = "noreply@pdx.edu"
+        you = "pbt@pdx.edu"
+        
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = "dbtracker: Database exceeded threshold"
+        msg['From'] = me
+        msg['To'] = you
+        
+        part1 = MIMEText(result_string, 'plain')
+        msg.attach(part1)
+        s = smtplib.SMTP('localhost')
+        s.sendmail(me, you, msg.as_string())
+        
+        s.quit()
+    
+    def find_high_and_low(self, database):
+        
+        for key, value in database.items():
+            if value < self.low:
+                self.low = value
+            if value > self.high:
+                self.high = value
+    
+    def check_threshold(self):
+        min = self.args.min
+        max = self.args.max
+        low = self.low
+        high = self.high
+        
+        if min != None and min >= low:
+            return True
+        
+        if max != None and max <= high:
+            return True
+            
+        return False
+        
     def save(self):
         now = datetime.datetime.now()
 
@@ -65,8 +125,33 @@ class Cli(object):
             sys.exit(1)
         d1, d2 = self.get_datetime_from_run(r1, r2)
         mysql_diff, pg_diff = self.run_difference(d1, d2)
+        self.find_high_and_low(mysql_diff)
+        self.find_high_and_low(pg_diff)
         self.diff_printer(d1, d2, mysql=mysql_diff, pg=pg_diff)
 
+    def email_growth(self):
+        runs = self.args.growth.split("-")
+        if len(runs) == 1:
+            r1 = 0
+            r2 = int(runs[0])
+        elif len(runs) == 2:
+            r1 = int(runs[0])
+            r2 = int(runs[1])
+        else:
+            logger.warning("Cant parse range")
+            sys.exit(1)
+        d1, d2 = self.get_datetime_from_run(r1, r2)
+        mysql_diff, pg_diff = self.run_difference(d1, d2)
+        self.find_high_and_low(mysql_diff)
+        self.find_high_and_low(pg_diff)
+        self.email_diff_printer(d1, d2, mysql=mysql_diff, pg=pg_diff)
+    
+    def email_diff_printer(self, d1, d2, mysql=None, pg=None):
+        print("==== PostgreSQL [{}] - [{}] ====".format(d1, d2))
+        print_bars(pg)
+        print("==== MySQL [{}] - [{}] ====".format(d1, d2))
+        print_bars(mysql)
+        
     def diff_printer(self, d1, d2, mysql=None, pg=None):
         print("==== PostgreSQL [{}] - [{}] ====".format(d1, d2))
         print_bars(pg)
