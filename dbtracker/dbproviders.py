@@ -95,6 +95,7 @@ class Mysql(Database):
         return normalized
 
     def get_tables(self):
+
         with self.connection() as cursor:
             cursor.execute("SELECT * FROM information_schema.tables WHERE \
                 TABLE_TYPE != 'VIEW'")
