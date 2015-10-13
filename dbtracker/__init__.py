@@ -31,6 +31,14 @@ def main(argv=None):
         action="store_true",
         help="turns logging levels down to ERROR only")
     parser.add_argument(
+        "--min",
+        type=int,
+        help="Minimum threshold of a database row change, before a notification is sent.")
+    parser.add_argument(
+        "--max",
+        type=int,
+        help="Maximum threshold of a database row change, before a notification is sent.")
+    parser.add_argument(
         "-C", "--config",
         type=str,
         help="use a custom configuration file path")
